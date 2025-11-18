@@ -2,3 +2,5 @@ django==5.0.3
 gunicorn
 pandas
 openpyxl
+psycopg2-binary
+dj-database-url

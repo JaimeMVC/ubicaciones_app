@@ -1,15 +1,40 @@
 import os
+import dj_database_url  # nuevo
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-key")  # en Render usaremos variable de entorno
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-key")
 DEBUG = os.environ.get("DEBUG", "0") == "1"
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", ".onrender.com"]
 CSRF_TRUSTED_ORIGINS = ["https://*.onrender.com"]
 
+# --- Base de datos: Postgres en Render, SQLite en local ---
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.environ["DATABASE_URL"],
+            conn_max_age=600,
+            ssl_require=True,
+        )
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
+        }
+    }
+
+STATIC_URL = "/static/"
+
 INSTALLED_APPS = [
-    "django.contrib.admin","django.contrib.auth","django.contrib.contenttypes",
-    "django.contrib.sessions","django.contrib.messages","django.contrib.staticfiles",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
     "app_inventario",
 ]
 
@@ -23,6 +48,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
+
 
 TEMPLATES = [{
     "BACKEND": "django.template.backends.django.DjangoTemplates",
