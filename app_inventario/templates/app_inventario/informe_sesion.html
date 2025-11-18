@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe sesión {{ session.id }} — PN {{ pn }}</title>
+</head>
+<body>
+<h1>Informe de avance — PN {{ pn }}</h1>
+
+<p>
+  <b>Sesión:</b> {{ session.id }}<br>
+  <b>Operador:</b> {{ session.operador }}<br>
+  <b>Fecha sesión:</b> {{ session.creado_en|date:"d/m/Y H:i" }}<br>
+  <b>Comentario:</b> {{ session.comentario }}
+</p>
+
+<p>
+  <b>Avance:</b> {{ revisadas }} / {{ total }} ({{ porcentaje }}%)
+</p>
+
+<p>
+  <a href="{% url 'exportar_sesion_csv' session.id %}">Descargar CSV de esta sesión</a>
+</p>
+
+<p>
+  <a href="{% url 'historial_pn' pn %}">Volver al historial del PN</a> |
+  <a href="{% url 'listado_ubicaciones' pn %}?session={{ session.id }}">Volver al checklist</a> |
+  <a href="{% url 'buscar_material' %}">Volver al inicio</a>
+</p>
+
+<table border="1" cellspacing="0" cellpadding="4">
+  <thead>
+    <tr>
+      <th>Revisado</th>
+      <th>Ubicación</th>
+      <th>Descripción</th>
+      <th>Fecha revisión</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td style="text-align:center;">
+        {% if row.detalle and row.detalle.revisado %}✔{% else %}-{% endif %}
+      </td>
+      <td>{{ row.base.ubicacion }}</td>
+      <td>{{ row.base.descripcion }}</td>
+      <td>
+        {% if row.detalle and row.detalle.fecha_revision %}
+          {{ row.detalle.fecha_revision|date:"d/m/Y H:i" }}
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+</body>
+</html>

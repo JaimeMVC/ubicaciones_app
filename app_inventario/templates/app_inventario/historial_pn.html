@@ -30,9 +30,8 @@
         <td>{{ item.revisadas }}</td>
         <td>{{ item.porcentaje }}%</td>
         <td>
-          <a href="{% url 'listado_ubicaciones' pn %}?session={{ item.session.id }}">
-            Abrir
-          </a>
+          <a href="{% url 'listado_ubicaciones' pn %}?session={{ item.session.id }}">Checklist</a> |
+          <a href="{% url 'informe_sesion' item.session.id %}">Informe</a>
         </td>
       </tr>
     {% endfor %}
@@ -43,3 +42,4 @@
 {% endif %}
 </body>
 </html>
+

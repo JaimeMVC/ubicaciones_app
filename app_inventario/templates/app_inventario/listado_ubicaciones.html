@@ -51,7 +51,8 @@
   <p>Avance: {{ revisadas }} / {{ total }} ({{ porcentaje }}%)</p>
   <p>
     <a href="{% url 'buscar_material' %}">Volver al buscador</a> |
-    <a href="{% url 'historial_pn' pn %}">Ver historial</a>
+    <a href="{% url 'historial_pn' pn %}">Ver historial</a> |
+    <a href="{% url 'informe_sesion' session.id %}">Ver informe de esta sesión</a>
   </p>
 
   <form id="csrf-form">{% csrf_token %}</form>
