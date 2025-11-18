@@ -1,30 +1,120 @@
-<h1>PN {{pn}}</h1>
-<p>{{revisadas}} / {{total}} ({{porcentaje}}%)</p>
-<form id="csrf">{% csrf_token %}</form>
-<table border=1>
-<tr><th>Ok</th><th>Ubicación</th><th>Descripción</th><th>Fecha</th></tr>
-{% for u in ubicaciones %}
-<tr>
-<td><input type="checkbox" data-id="{{u.id}}" class="ck" {% if u.is_checked %}checked{% endif %}></td>
-<td>{{u.ubicacion}}</td>
-<td>{{u.descripcion}}</td>
-<td>{% if u.checked_at %}{{u.checked_at}}{% endif %}</td>
-</tr>
-{% endfor %}
-<p>
-  <a href="{% url 'informe_avance' pn %}">Ver informe</a> |
-  <a href="{% url 'buscar_material' %}">Volver al buscador</a>
-</p>
-</table>
-<script>
-let csr=document.querySelector('#csrf input').value;
-document.querySelectorAll('.ck').forEach(c=>{
- c.onchange=()=>{
-  fetch("{% url 'toggle_check' %}",{
-   method:"POST",
-   headers:{"Content-Type":"application/x-www-form-urlencoded","X-CSRFToken":csr},
-   body:`id=${c.dataset.id}&checked=${c.checked}`
-  })
- }
-})
-</script>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>PN {{ pn }}</title>
+</head>
+<body>
+<h1>PN {{ pn }}</h1>
+
+{% if messages %}
+  <ul>
+    {% for m in messages %}<li>{{ m }}</li>{% endfor %}
+  </ul>
+{% endif %}
+
+{% if not session %}
+  <h3>Iniciar nueva sesión de conteo</h3>
+  <form method="post">
+    {% csrf_token %}
+    <p>Operador: <input type="text" name="operador" required></p>
+    <p>Comentario: <input type="text" name="comentario"></p>
+    <button type="submit">Iniciar sesión</button>
+  </form>
+
+  <h3>Sesiones anteriores para este PN</h3>
+  {% if sesiones_pn %}
+    <ul>
+      {% for s in sesiones_pn %}
+        <li>
+          {{ s.creado_en|date:"d/m/Y H:i" }} – {{ s.operador }}
+          (<a href="{% url 'listado_ubicaciones' pn %}?session={{ s.id }}">Abrir</a>)
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No hay sesiones previas para este PN.</p>
+  {% endif %}
+
+  <p>
+    <a href="{% url 'buscar_material' %}">Volver al buscador</a> |
+    <a href="{% url 'historial_pn' pn %}">Ver historial</a>
+  </p>
+
+{% else %}
+
+  <p>
+    Sesión actual: <b>{{ session.operador }}</b> ({{ session.creado_en|date:"d/m/Y H:i" }})<br>
+    Comentario: {{ session.comentario }}
+  </p>
+
+  <p>Avance: {{ revisadas }} / {{ total }} ({{ porcentaje }}%)</p>
+  <p>
+    <a href="{% url 'buscar_material' %}">Volver al buscador</a> |
+    <a href="{% url 'historial_pn' pn %}">Ver historial</a>
+  </p>
+
+  <form id="csrf-form">{% csrf_token %}</form>
+
+  <table border="1" cellspacing="0" cellpadding="4">
+    <thead>
+      <tr><th>Ok</th><th>Ubicación</th><th>Descripción</th><th>Fecha</th></tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td style="text-align:center;">
+          <input type="checkbox"
+                 class="check-ubicacion"
+                 data-base-id="{{ row.base.id }}"
+                 data-session-id="{{ session.id }}"
+                 {% if row.detalle and row.detalle.revisado %}checked{% endif %}>
+        </td>
+        <td>{{ row.base.ubicacion }}</td>
+        <td>{{ row.base.descripcion }}</td>
+        <td>
+          {% if row.detalle and row.detalle.fecha_revision %}
+            {{ row.detalle.fecha_revision|date:"d/m/Y H:i" }}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div id="msg" style="margin-top:8px;"></div>
+
+  <script>
+    const csrftoken = document.querySelector('#csrf-form input[name=csrfmiddlewaretoken]').value;
+
+    document.querySelectorAll('.check-ubicacion').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const baseId = cb.dataset.baseId;
+        const sessionId = cb.dataset.sessionId;
+        const checked = cb.checked;
+
+        fetch("{% url 'toggle_check' %}", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": csrftoken
+          },
+          body: new URLSearchParams({
+            base_id: baseId,
+            session_id: sessionId,
+            checked: checked
+          })
+        }).then(res => {
+          document.getElementById('msg').textContent = res.ok ? "Guardado" : "Error al guardar";
+          if (!res.ok) cb.checked = !checked;
+        }).catch(() => {
+          document.getElementById('msg').textContent = "Error de conexión";
+          cb.checked = !checked;
+        });
+      });
+    });
+  </script>
+
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Historial PN {{ pn }}</title>
+</head>
+<body>
+<h1>Historial de sesiones — PN {{ pn }}</h1>
+
+<p><a href="{% url 'buscar_material' %}">Volver al buscador</a></p>
+
+{% if data %}
+  <table border="1" cellspacing="0" cellpadding="4">
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Operador</th>
+        <th>Total ubicaciones</th>
+        <th>Revisadas</th>
+        <th>%</th>
+        <th>Ver sesión</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for item in data %}
+      <tr>
+        <td>{{ item.session.creado_en|date:"d/m/Y H:i" }}</td>
+        <td>{{ item.session.operador }}</td>
+        <td>{{ item.total }}</td>
+        <td>{{ item.revisadas }}</td>
+        <td>{{ item.porcentaje }}%</td>
+        <td>
+          <a href="{% url 'listado_ubicaciones' pn %}?session={{ item.session.id }}">
+            Abrir
+          </a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p>No hay sesiones registradas para este PN.</p>
+{% endif %}
+</body>
+</html>

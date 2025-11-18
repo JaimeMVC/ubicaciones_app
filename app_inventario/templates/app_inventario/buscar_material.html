@@ -1,10 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Buscar PN</title>
+</head>
+<body>
 <h1>Buscar PN</h1>
+
+<p><a href="{% url 'cargar_excel' %}">Cargar/Actualizar Excel base</a></p>
+
 <form method="get">
-    <input name="q" placeholder="PN" value="{{query}}">
-    <button>Buscar</button>
+  <input type="text" name="q" placeholder="PN" value="{{ query }}">
+  <button type="submit">Buscar</button>
 </form>
-<ul>
-{% for m in materiales %}
-<li><a href="{% url 'listado_ubicaciones' m.pn %}">{{m.pn}}</a></li>
-{% endfor %}
-</ul>
+
+{% if materiales %}
+  <h2>Resultados</h2>
+  <ul>
+    {% for m in materiales %}
+      <li>
+        PN {{ m.pn }} –
+        <a href="{% url 'listado_ubicaciones' m.pn %}">Iniciar / continuar conteo</a> |
+        <a href="{% url 'historial_pn' m.pn %}">Historial</a>
+      </li>
+    {% endfor %}
+  </ul>
+{% elif query %}
+  <p>No se encontraron PN para "{{ query }}".</p>
+{% endif %}
+</body>
+</html>
