@@ -3,22 +3,23 @@ from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 from django.urls import reverse
 from django.contrib import messages
+from django.db import transaction
 import csv
 
-import pandas as pd
-from django.db import transaction
+from openpyxl import load_workbook
 
 from .models import (
     LocationBase,
     CountSession,
     CountDetail,
-    ResultSnapshot,  # aunque casi no lo usemos ahora, lo dejamos
+    ResultSnapshot,  # por ahora casi no lo usamos pero se deja
 )
 
 
-# ========= Helpers para importar Excel =========
+# ================= Helpers =================
 
 def _norm(s: str) -> str:
+    """Normaliza cadenas para detectar columnas similares."""
     if s is None:
         return ""
     s = str(s).strip().lower()
@@ -35,86 +36,79 @@ def _norm(s: str) -> str:
     return s
 
 
-from openpyxl import load_workbook
-
-def _import_df_to_locationbase(file) -> int:
+def _import_excel_stream(file_obj) -> int:
     """
-    Importa Excel sin usar pandas.
-    Procesa fila por fila en streaming → no consume RAM.
+    Importa un Excel grande en modo streaming (sin pandas) y lo vuelca en LocationBase.
+    Se puede usar desde la vista web o desde un comando de management.
     """
 
-    wb = load_workbook(file, read_only=True, data_only=True)
+    wb = load_workbook(file_obj, read_only=True, data_only=True)
     ws = wb.active
 
-    # Leer encabezados
-    headers = [str(c.value).strip() if c.value else "" for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    # Leer encabezados (primera fila)
+    header_row = next(ws.iter_rows(min_row=1, max_row=1))
+    headers = [str(c.value).strip() if c.value else "" for c in header_row]
 
-    # Normalizar nombres
-    def norm(s):
-        return (
-            s.lower()
-            .replace(" ", "")
-            .replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
-            .replace("_","").replace("-","").replace(".","").replace("/","")
-        )
+    norm_headers = [_norm(h) for h in headers]
 
-    norm_headers = [norm(h) for h in headers]
-
-    def pick(names):
-        for name in names:
-            if name in norm_headers:
-                return norm_headers.index(name)
+    def pick(cands):
+        for c in cands:
+            if c in norm_headers:
+                return norm_headers.index(c)
         return None
 
-    idx_pn = pick(["pn","partnumber","material","codigo","codigomaterial"])
-    idx_ubi = pick(["ubicacion","ubicaciones","location"])
-    idx_des = pick(["descripcion","description","desc"])
+    idx_pn = pick(["pn", "partnumber", "material", "codigo", "codigomaterial", "materialcode"])
+    idx_ubi = pick(["ubicaciones", "ubicacion", "location", "ubicacionessap", "ubicacionfisica"])
+    idx_des = pick(["descripcion", "description", "desc"])
 
     if idx_pn is None or idx_ubi is None:
-        raise ValueError("No se encontraron columnas PN y Ubicacion")
+        raise ValueError(f"Faltan columnas PN o Ubicaciones. Encabezados: {headers}")
 
-    # Marcar todo como inactivo
-    LocationBase.objects.update(activo=False)
+    with transaction.atomic():
+        # Marcamos todo como inactivo, y vamos reactivando lo que venga en el Excel
+        LocationBase.objects.update(activo=False)
 
-    count = 0
-    rows_to_create = []
+        count = 0
 
-    for row in ws.iter_rows(min_row=2):
-        pn = row[idx_pn].value if idx_pn < len(row) else None
-        ub = row[idx_ubi].value if idx_ubi < len(row) else None
-        desc = row[idx_des].value if idx_des is not None and idx_des < len(row) else ""
+        for row in ws.iter_rows(min_row=2):
+            pn = row[idx_pn].value if idx_pn < len(row) else None
+            ub = row[idx_ubi].value if idx_ubi < len(row) else None
+            desc = row[idx_des].value if (idx_des is not None and idx_des < len(row)) else ""
 
-        if not pn or not ub:
-            continue
+            if not pn or not ub:
+                continue
 
-        pn = str(pn).strip()
-        ub = str(ub).strip()
-        desc = str(desc).strip() if desc else ""
+            pn = str(pn).strip()
+            ub = str(ub).strip()
+            desc = str(desc).strip() if desc else ""
 
-        if not pn or not ub:
-            continue
+            if not pn or not ub:
+                continue
 
-        # update_or_create no consume memoria
-        LocationBase.objects.update_or_create(
-            pn=pn,
-            ubicacion=ub,
-            defaults={"descripcion": desc, "activo": True}
-        )
-
-        count += 1
+            LocationBase.objects.update_or_create(
+                pn=pn,
+                ubicacion=ub,
+                defaults={
+                    "descripcion": desc,
+                    "activo": True,
+                },
+            )
+            count += 1
 
     return count
 
 
-
-# ========= Vistas principales =========
+# ================= Vistas principales =================
 
 def cargar_excel(request):
-    """Subir Excel desde la web y actualizar LocationBase."""
+    """
+    Subir Excel desde la web y actualizar LocationBase.
+    OJO: para archivos MUY grandes en Render free puede seguir habiendo límite de RAM;
+    en ese caso conviene usar un comando de management desde tu PC.
+    """
     if request.method == "POST" and request.FILES.get("archivo"):
         try:
-            n = _import_df_to_locationbase(request.FILES["archivo"])
-
+            n = _import_excel_stream(request.FILES["archivo"])
             messages.success(request, f"Archivo importado correctamente. Filas procesadas: {n}.")
             return redirect("buscar_material")
         except Exception as e:
@@ -279,7 +273,6 @@ def exportar_sesion_csv(request, session_id):
     detalles = CountDetail.objects.filter(session=session)
     detalles_by_base = {d.base_id: d for d in detalles}
 
-    # Preparamos respuesta CSV
     filename = f"avance_{pn}_sesion_{session.id}.csv"
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'

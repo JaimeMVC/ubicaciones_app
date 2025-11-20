@@ -2,25 +2,31 @@ import os
 from pathlib import Path
 import dj_database_url
 
+# Carpeta base del proyecto
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ================= CONFIG BÁSICA =================
+
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-key")
-DEBUG = True
+
+# Podés manejar DEBUG por variable de entorno, por defecto queda encendido
+DEBUG = os.environ.get("DEBUG", "1") == "1"
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", ".onrender.com"]
 CSRF_TRUSTED_ORIGINS = ["https://*.onrender.com"]
 
-# --- Base de datos: Postgres en Render / SQLite local ---
+# ================= BASE DE DATOS =================
+# - Si existe DATABASE_URL → usa Postgres (Render)
+# - Si NO existe → usa SQLite local
+
 if "DATABASE_URL" in os.environ:
-    # Producción (Render): usar Postgres de DATABASE_URL
     DATABASES = {
         "default": dj_database_url.config(
             conn_max_age=600,
-            ssl_require=False,
+            ssl_require=False,  # si Render exige SSL se puede pasar a True
         )
     }
 else:
-    # Desarrollo local: usar SQLite en un archivo
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -28,7 +34,7 @@ else:
         }
     }
 
-STATIC_URL = "/static/"
+# ================= APPS =================
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -39,6 +45,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "app_inventario",
 ]
+
+# ================= MIDDLEWARE =================
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -51,16 +59,28 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 
-TEMPLATES = [{
-    "BACKEND": "django.template.backends.django.DjangoTemplates",
-    "DIRS": [],
-    "APP_DIRS": True,
-    "OPTIONS": {"context_processors": [
-        "django.template.context_processors.debug",
-        "django.template.context_processors.request",
-        "django.contrib.auth.context_processors.auth",
-        "django.contrib.messages.context_processors.messages",
-    ]},
-}]
+# ================= TEMPLATES =================
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
 
 WSGI_APPLICATION = "config.wsgi.application"
+
+# ================= ESTÁTICOS =================
+
+STATIC_URL = "/static/"
+# Si en algún momento querés colectar estáticos para producción:
+# STATIC_ROOT = BASE_DIR / "staticfiles"
