@@ -19,12 +19,8 @@
 </p>
 
 <p>
-  <a href="{% url 'exportar_sesion_csv' session.id %}">Descargar CSV de esta sesión</a>
-</p>
-
-<p>
+  <a href="{% url 'exportar_sesion_csv' session.id %}">Descargar CSV de esta sesión</a> |
   <a href="{% url 'historial_pn' pn %}">Volver al historial del PN</a> |
-  <a href="{% url 'listado_ubicaciones' pn %}?session={{ session.id }}">Volver al checklist</a> |
   <a href="{% url 'buscar_material' %}">Volver al inicio</a>
 </p>
 
@@ -34,6 +30,7 @@
       <th>Revisado</th>
       <th>Ubicación</th>
       <th>Descripción</th>
+      <th>Cantidad</th>
       <th>Fecha revisión</th>
     </tr>
   </thead>
@@ -45,6 +42,11 @@
       </td>
       <td>{{ row.base.ubicacion }}</td>
       <td>{{ row.base.descripcion }}</td>
+      <td>
+        {% if row.detalle and row.detalle.cantidad is not None %}
+          {{ row.detalle.cantidad }}
+        {% endif %}
+      </td>
       <td>
         {% if row.detalle and row.detalle.fecha_revision %}
           {{ row.detalle.fecha_revision|date:"d/m/Y H:i" }}

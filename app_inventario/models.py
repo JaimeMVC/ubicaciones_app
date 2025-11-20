@@ -1,5 +1,6 @@
 from django.db import models
 
+
 class LocationCheck(models.Model):
     pn = models.CharField(max_length=50)
     ubicacion = models.CharField(max_length=50)
@@ -38,6 +39,8 @@ class CountDetail(models.Model):
     base = models.ForeignKey(LocationBase, on_delete=models.CASCADE, related_name='conteos')
     revisado = models.BooleanField(default=False)
     fecha_revision = models.DateTimeField(blank=True, null=True)
+    # 👉 NUEVO: cantidad de piezas encontradas en esa ubicación
+    cantidad = models.IntegerField(blank=True, null=True)
 
     class Meta:
         unique_together = ('session', 'base')

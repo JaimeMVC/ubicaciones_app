@@ -4,111 +4,96 @@ from django.utils import timezone
 from django.urls import reverse
 from django.contrib import messages
 from django.db import transaction
-import csv
 
-from openpyxl import load_workbook
+import csv
+import io
+import pandas as pd
+
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
 
 from .models import (
     LocationBase,
     CountSession,
     CountDetail,
-    ResultSnapshot,  # por ahora casi no lo usamos pero se deja
+    ResultSnapshot,
 )
 
 
-# ================= Helpers =================
+# ========= Helpers para importar Excel =========
 
 def _norm(s: str) -> str:
-    """Normaliza cadenas para detectar columnas similares."""
     if s is None:
         return ""
     s = str(s).strip().lower()
-    s = (
-        s.replace("á", "a")
-         .replace("é", "e")
-         .replace("í", "i")
-         .replace("ó", "o")
-         .replace("ú", "u")
-         .replace("ñ", "n")
-    )
+    s = (s.replace("á", "a").replace("é", "e").replace("í", "i")
+             .replace("ó", "o").replace("ú", "u").replace("ñ", "n"))
     for ch in [" ", "\t", "\n", "-", "_", ".", "/"]:
         s = s.replace(ch, "")
     return s
 
 
-def _import_excel_stream(file_obj) -> int:
-    """
-    Importa un Excel grande en modo streaming (sin pandas) y lo vuelca en LocationBase.
-    Se puede usar desde la vista web o desde un comando de management.
-    """
-
-    wb = load_workbook(file_obj, read_only=True, data_only=True)
-    ws = wb.active
-
-    # Leer encabezados (primera fila)
-    header_row = next(ws.iter_rows(min_row=1, max_row=1))
-    headers = [str(c.value).strip() if c.value else "" for c in header_row]
-
-    norm_headers = [_norm(h) for h in headers]
+def _import_df_to_locationbase(df: pd.DataFrame) -> int:
+    cols_map = {_norm(c): c for c in df.columns if isinstance(c, str)}
 
     def pick(cands):
-        for c in cands:
-            if c in norm_headers:
-                return norm_headers.index(c)
+        for k in cands:
+            if k in cols_map:
+                return cols_map[k]
         return None
 
-    idx_pn = pick(["pn", "partnumber", "material", "codigo", "codigomaterial", "materialcode"])
-    idx_ubi = pick(["ubicaciones", "ubicacion", "location", "ubicacionessap", "ubicacionfisica"])
-    idx_des = pick(["descripcion", "description", "desc"])
+    col_pn = pick(["pn", "partnumber", "material", "codigo", "codigomaterial", "materialcode"])
+    col_ubi = pick(["ubicaciones", "ubicacion", "location", "ubicacionessap", "ubicacionfisica"])
+    col_des = pick(["descripcion", "description", "desc"])
 
-    if idx_pn is None or idx_ubi is None:
-        raise ValueError(f"Faltan columnas PN o Ubicaciones. Encabezados: {headers}")
+    if not col_pn or not col_ubi:
+        raise ValueError(f"Faltan columnas PN o Ubicaciones. Encabezados: {list(df.columns)}")
+
+    if not col_des:
+        df["__descripcion__"] = ""
+        col_des = "__descripcion__"
+
+    df = df[[col_pn, col_ubi, col_des]].rename(columns={
+        col_pn: "pn",
+        col_ubi: "ubicacion",
+        col_des: "descripcion",
+    })
+
+    df["pn"] = df["pn"].astype(str).str.strip()
+    df["ubicacion"] = df["ubicacion"].astype(str).str.strip()
+    df["descripcion"] = df["descripcion"].astype(str).fillna("").str.strip()
+
+    df = df[(df["pn"] != "") & (df["ubicacion"] != "")]
+    df = df.dropna(subset=["pn", "ubicacion"])
+    df = df.drop_duplicates(subset=["pn", "ubicacion"], keep="last")
+
+    objs = [
+        LocationBase(
+            pn=row["pn"],
+            ubicacion=row["ubicacion"],
+            descripcion=row["descripcion"],
+            activo=True,
+        )
+        for _, row in df.iterrows()
+    ]
 
     with transaction.atomic():
-        # Marcamos todo como inactivo, y vamos reactivando lo que venga en el Excel
-        LocationBase.objects.update(activo=False)
+        LocationBase.objects.all().delete()
+        LocationBase.objects.bulk_create(objs, batch_size=1000)
 
-        count = 0
-
-        for row in ws.iter_rows(min_row=2):
-            pn = row[idx_pn].value if idx_pn < len(row) else None
-            ub = row[idx_ubi].value if idx_ubi < len(row) else None
-            desc = row[idx_des].value if (idx_des is not None and idx_des < len(row)) else ""
-
-            if not pn or not ub:
-                continue
-
-            pn = str(pn).strip()
-            ub = str(ub).strip()
-            desc = str(desc).strip() if desc else ""
-
-            if not pn or not ub:
-                continue
-
-            LocationBase.objects.update_or_create(
-                pn=pn,
-                ubicacion=ub,
-                defaults={
-                    "descripcion": desc,
-                    "activo": True,
-                },
-            )
-            count += 1
-
-    return count
+    return len(objs)
 
 
-# ================= Vistas principales =================
+# ========= Vistas principales =========
 
 def cargar_excel(request):
-    """
-    Subir Excel desde la web y actualizar LocationBase.
-    OJO: para archivos MUY grandes en Render free puede seguir habiendo límite de RAM;
-    en ese caso conviene usar un comando de management desde tu PC.
-    """
+    """Subir Excel desde la web y actualizar LocationBase."""
     if request.method == "POST" and request.FILES.get("archivo"):
         try:
-            n = _import_excel_stream(request.FILES["archivo"])
+            df = pd.read_excel(request.FILES["archivo"], engine="openpyxl")
+            n = _import_df_to_locationbase(df)
             messages.success(request, f"Archivo importado correctamente. Filas procesadas: {n}.")
             return redirect("buscar_material")
         except Exception as e:
@@ -211,6 +196,32 @@ def toggle_check(request):
     return JsonResponse({"success": False}, status=400)
 
 
+def actualizar_cantidad(request):
+    """Actualiza la cantidad contada para una ubicación en una sesión."""
+    if request.method == "POST":
+        session_id = request.POST.get("session_id")
+        base_id = request.POST.get("base_id")
+        cantidad_raw = request.POST.get("cantidad", "").strip()
+
+        session = get_object_or_404(CountSession, id=session_id)
+        base = get_object_or_404(LocationBase, id=base_id)
+
+        detail, _ = CountDetail.objects.get_or_create(session=session, base=base)
+
+        if cantidad_raw == "":
+            detail.cantidad = None
+        else:
+            try:
+                detail.cantidad = int(cantidad_raw)
+            except ValueError:
+                return JsonResponse({"success": False, "error": "Cantidad inválida"}, status=400)
+
+        detail.save()
+        return JsonResponse({"success": True})
+
+    return JsonResponse({"success": False}, status=400)
+
+
 def historial_pn(request, pn):
     """Historial de sesiones para un PN, con avance calculado."""
     sesiones = CountSession.objects.filter(pn=pn).order_by("-creado_en")
@@ -285,6 +296,7 @@ def exportar_sesion_csv(request, session_id):
         "Ubicación",
         "Descripción",
         "Revisado",
+        "Cantidad",
         "Fecha revisión",
         "Comentario sesión",
     ])
@@ -298,8 +310,76 @@ def exportar_sesion_csv(request, session_id):
             b.ubicacion,
             b.descripcion,
             "SI" if (detalle and detalle.revisado) else "NO",
+            detalle.cantidad if (detalle and detalle.cantidad is not None) else "",
             detalle.fecha_revision.strftime("%Y-%m-%d %H:%M") if (detalle and detalle.fecha_revision) else "",
             session.comentario or "",
         ])
 
     return response
+
+
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+
+# ...
+
+def exportar_listado_pdf(request, pn):
+    """
+    Genera un PDF con el listado de ubicaciones para un PN,
+    para imprimir y completar a mano.
+    NO depende de una sesión de conteo.
+    """
+    # Traemos todas las ubicaciones activas de ese PN
+    base_ubics = LocationBase.objects.filter(pn=pn, activo=True).order_by("ubicacion")
+
+    # Armamos la respuesta HTTP como PDF
+    filename = f"listado_{pn}.pdf"
+    response = HttpResponse(content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    # Configuramos ReportLab
+    c = canvas.Canvas(response, pagesize=A4)
+    width, height = A4
+
+    # Margenes
+    left = 20 * mm
+    top = height - 20 * mm
+    line_height = 8 * mm
+
+    # Título
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(left, top, f"Listado de ubicaciones para PN {pn}")
+
+    y = top - 2 * line_height
+
+    # Encabezados de columnas
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(left, y, "Ok")
+    c.drawString(left + 20 * mm, y, "Ubicación")
+    c.drawString(left + 70 * mm, y, "Descripción")
+    c.drawString(left + 150 * mm, y, "Cantidad")
+    y -= line_height
+
+    c.setFont("Helvetica", 10)
+
+    for b in base_ubics:
+        if y < 20 * mm:  # salto de página
+            c.showPage()
+            y = top
+
+        # Cuadradito para "Ok"
+        c.rect(left, y - 3, 5 * mm, 5 * mm)
+
+        c.drawString(left + 20 * mm, y, b.ubicacion[:20])
+        c.drawString(left + 70 * mm, y, (b.descripcion or "")[:40])
+        # Dejo espacio en blanco para escribir la cantidad
+        # solo una línea vacía
+        c.line(left + 150 * mm, y - 2, left + 190 * mm, y - 2)
+
+        y -= line_height
+
+    c.showPage()
+    c.save()
+    return response
+

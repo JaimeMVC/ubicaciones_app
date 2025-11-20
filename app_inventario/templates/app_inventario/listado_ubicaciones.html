@@ -7,13 +7,18 @@
 <body>
 <h1>PN {{ pn }}</h1>
 
+{# Mensajes Django #}
 {% if messages %}
   <ul>
-    {% for m in messages %}<li>{{ m }}</li>{% endfor %}
+    {% for m in messages %}
+      <li>{{ m }}</li>
+    {% endfor %}
   </ul>
 {% endif %}
 
+{# ================== SIN SESIÓN ACTIVA ================== #}
 {% if not session %}
+
   <h3>Iniciar nueva sesión de conteo</h3>
   <form method="post">
     {% csrf_token %}
@@ -41,38 +46,62 @@
     <a href="{% url 'historial_pn' pn %}">Ver historial</a>
   </p>
 
+{# ================== CON SESIÓN ACTIVA ================== #}
 {% else %}
 
   <p>
-    Sesión actual: <b>{{ session.operador }}</b> ({{ session.creado_en|date:"d/m/Y H:i" }})<br>
+    Sesión actual: <b>{{ session.operador }}</b>
+    ({{ session.creado_en|date:"d/m/Y H:i" }})<br>
     Comentario: {{ session.comentario }}
   </p>
 
   <p>Avance: {{ revisadas }} / {{ total }} ({{ porcentaje }}%)</p>
+
   <p>
     <a href="{% url 'buscar_material' %}">Volver al buscador</a> |
     <a href="{% url 'historial_pn' pn %}">Ver historial</a> |
     <a href="{% url 'informe_sesion' session.id %}">Ver informe de esta sesión</a>
+    <a href="{% url 'exportar_listado_pdf' pn %}">Descargar listado en PDF para imprimir</a>
   </p>
 
+  {# CSRF independiente para los fetch() #}
   <form id="csrf-form">{% csrf_token %}</form>
 
   <table border="1" cellspacing="0" cellpadding="4">
     <thead>
-      <tr><th>Ok</th><th>Ubicación</th><th>Descripción</th><th>Fecha</th></tr>
+      <tr>
+        <th>Ok</th>
+        <th>Ubicación</th>
+        <th>Descripción</th>
+        <th>Cantidad</th>
+        <th>Fecha</th>
+      </tr>
     </thead>
     <tbody>
     {% for row in rows %}
       <tr>
         <td style="text-align:center;">
-          <input type="checkbox"
-                 class="check-ubicacion"
-                 data-base-id="{{ row.base.id }}"
-                 data-session-id="{{ session.id }}"
-                 {% if row.detalle and row.detalle.revisado %}checked{% endif %}>
+          <input
+            type="checkbox"
+            class="check-ubicacion"
+            data-base-id="{{ row.base.id }}"
+            data-session-id="{{ session.id }}"
+            {% if row.detalle and row.detalle.revisado %}checked{% endif %}
+          >
         </td>
         <td>{{ row.base.ubicacion }}</td>
         <td>{{ row.base.descripcion }}</td>
+        <td>
+          <input
+            type="number"
+            min="0"
+            class="input-cantidad"
+            data-base-id="{{ row.base.id }}"
+            data-session-id="{{ session.id }}"
+            value="{% if row.detalle and row.detalle.cantidad is not None %}{{ row.detalle.cantidad }}{% else %}0{% endif %}"
+            style="width:80px;"
+          >
+        </td>
         <td>
           {% if row.detalle and row.detalle.fecha_revision %}
             {{ row.detalle.fecha_revision|date:"d/m/Y H:i" }}
@@ -86,8 +115,10 @@
   <div id="msg" style="margin-top:8px;"></div>
 
   <script>
+    // CSRF para los fetch()
     const csrftoken = document.querySelector('#csrf-form input[name=csrfmiddlewaretoken]').value;
 
+    // -------- Checkbox Ok (toggle_check) ----------
     document.querySelectorAll('.check-ubicacion').forEach(cb => {
       cb.addEventListener('change', () => {
         const baseId = cb.dataset.baseId;
@@ -105,12 +136,44 @@
             session_id: sessionId,
             checked: checked
           })
-        }).then(res => {
-          document.getElementById('msg').textContent = res.ok ? "Guardado" : "Error al guardar";
+        })
+        .then(res => {
+          document.getElementById('msg').textContent =
+            res.ok ? "Guardado OK" : "Error al guardar";
           if (!res.ok) cb.checked = !checked;
-        }).catch(() => {
+        })
+        .catch(() => {
           document.getElementById('msg').textContent = "Error de conexión";
           cb.checked = !checked;
+        });
+      });
+    });
+
+    // -------- Cantidad encontrada (actualizar_cantidad) ----------
+    document.querySelectorAll('.input-cantidad').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const baseId = inp.dataset.baseId;
+        const sessionId = inp.dataset.sessionId;
+        const cantidad = inp.value;
+
+        fetch("{% url 'actualizar_cantidad' %}", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRFToken": csrftoken
+          },
+          body: new URLSearchParams({
+            base_id: baseId,
+            session_id: sessionId,
+            cantidad: cantidad
+          })
+        })
+        .then(res => {
+          document.getElementById('msg').textContent =
+            res.ok ? "Cantidad guardada" : "Error al guardar cantidad";
+        })
+        .catch(() => {
+          document.getElementById('msg').textContent = "Error de conexión";
         });
       });
     });
